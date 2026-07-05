@@ -1,59 +1,498 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import json
+import re
 import logging
+import asyncio
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional, Dict, Any, Literal
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import bcrypt
+import jwt as pyjwt
 
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# --- Config ---
+MONGO_URL = os.environ['MONGO_URL']
+DB_NAME = os.environ['DB_NAME']
+EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+JWT_SECRET = os.environ['JWT_SECRET_KEY']
+JWT_ALG = os.environ.get('JWT_ALGORITHM', 'HS256')
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 10080))
 
-# Create the main app without a prefix
-app = FastAPI()
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="RoopCraft OS API")
+api = APIRouter(prefix="/api")
 
+# --- Models ---
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1)
 
-# Define Models
-class StatusCheck(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class UserPublic(BaseModel):
+    id: str
+    email: EmailStr
+    name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserPublic
+
+Category = Literal["Cafe","Restaurant","Hotel","Gym","Salon","Startup","Clinic","Real Estate","Other"]
+LeadStatus = Literal["New","Contacted","Meeting Scheduled","Proposal Sent","Negotiation","Won","Lost"]
+ModelChoice = Literal["gemini","claude","openai"]
+
+class AuditCreate(BaseModel):
+    business_name: str
+    category: Category
+    city: str
+    state: str
+    instagram_url: Optional[str] = ""
+    website_url: Optional[str] = ""
+    google_maps_url: Optional[str] = ""
+    usp: Optional[str] = ""
+    notes: Optional[str] = ""
+    goal: Optional[str] = ""
+    model: ModelChoice = "gemini"
+
+class LeadStatusUpdate(BaseModel):
+    status: LeadStatus
+
+class Lead(BaseModel):
+    id: str
+    user_id: str
+    business_name: str
+    category: str
+    city: str
+    state: str
+    instagram_url: str
+    website_url: str
+    google_maps_url: str
+    usp: str
+    notes: str
+    goal: str
+    status: str
+    model: str
+    report: Optional[Dict[str, Any]] = None
+    sales_kit: Optional[Dict[str, Any]] = None
+    proposal: Optional[Dict[str, Any]] = None
+    created_at: str
+    updated_at: str
+
+# --- Auth helpers ---
+security = HTTPBearer()
+
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+def create_access_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": datetime.now(timezone.utc),
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    token = creds.credentials
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        user_id = payload.get("sub")
+    except pyjwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+# --- Model mapping ---
+MODEL_MAP = {
+    "gemini": ("gemini", "gemini-3.1-pro-preview"),
+    "claude": ("anthropic", "claude-sonnet-4-5-20250929"),
+    "openai": ("openai", "gpt-5.2"),
+}
+
+def new_chat(session_id: str, system_message: str, model_choice: str) -> LlmChat:
+    provider, model_name = MODEL_MAP.get(model_choice, MODEL_MAP["gemini"])
+    return LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=session_id,
+        system_message=system_message,
+    ).with_model(provider, model_name)
+
+def extract_json(text: str) -> Dict[str, Any]:
+    """Extract JSON object from an LLM response robustly."""
+    if not text:
+        return {}
+    # Remove code fences
+    cleaned = text.strip()
+    m = re.search(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", cleaned, re.DOTALL)
+    if m:
+        cleaned = m.group(1)
+    else:
+        # take first { ... } balanced block
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1:
+            cleaned = cleaned[start:end+1]
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return {"raw": text}
+
+# --- Prompts ---
+REPORT_SYSTEM = """You are RoopCraft OS — a premier B2B growth strategist for local businesses.
+You produce comprehensive, actionable business intelligence reports for agency owners preparing to pitch clients.
+Always return valid JSON only, no prose outside the JSON. Be specific, insightful and strategic. Avoid generic filler."""
+
+SALES_KIT_SYSTEM = """You are RoopCraft OS — a world class sales copywriter for creative agencies.
+Given a business intelligence report, generate personalized outreach scripts and sales content.
+Always return valid JSON only. Scripts must feel human, warm, specific, and reference the business details."""
+
+PROPOSAL_SYSTEM = """You are RoopCraft OS — a proposal architect for creative agencies.
+Given a business intelligence report and sales kit, generate a full multi-section proposal.
+Always return valid JSON only. Sections should be crisp, persuasive, and business-specific."""
+
+def report_prompt(a: AuditCreate) -> str:
+    return f"""Analyze the following business and generate a comprehensive intelligence report as JSON.
+
+BUSINESS INPUT
+Name: {a.business_name}
+Category: {a.category}
+Location: {a.city}, {a.state}
+Instagram: {a.instagram_url or "N/A"}
+Website: {a.website_url or "N/A"}
+Google Maps: {a.google_maps_url or "N/A"}
+USP: {a.usp or "N/A"}
+Goal: {a.goal or "Grow brand recognition"}
+Owner Notes: {a.notes or "N/A"}
+
+Return a JSON object with exactly this shape:
+{{
+  "business_summary": {{
+    "what_they_do": "string, 2-3 sentences",
+    "brand_positioning": "string, 2-3 sentences",
+    "customer_experience": "string, 2-3 sentences",
+    "target_audience_estimated": "string, 1-2 sentences"
+  }},
+  "google_maps_analysis": {{
+    "estimated_rating": "string like '4.5/5' (estimate if unknown)",
+    "estimated_reviews": "string like '250+'",
+    "positive_themes": ["array of 4-6 short phrases"],
+    "common_complaints": ["array of 3-5 short phrases"],
+    "peak_hours": "string, best guess"
+  }},
+  "instagram_audit": {{
+    "bio_assessment": "1-2 sentence critique",
+    "highlights": "1-2 sentence critique",
+    "profile_picture": "1 sentence",
+    "posting_frequency": "assessment",
+    "reels": "assessment",
+    "engagement": "assessment",
+    "visual_consistency": "assessment",
+    "strengths": ["3-5 items"],
+    "weaknesses": ["3-5 items"],
+    "missed_opportunities": ["3-5 items"],
+    "quick_wins": ["3-5 items"]
+  }},
+  "nearby_opportunities": [
+    {{"type": "Colleges|Offices|Hospitals|Tourist Attractions|Highways|Residential", "example": "specific example nearby if known or plausible", "how_to_target": "1-2 sentences"}}
+  ],
+  "competitor_analysis": [
+    {{"name":"competitor name","followers":"~5k","content_quality":"...","posting_frequency":"...","hooks":"...","strengths":"...","weaknesses":"..."}}
+  ],
+  "growth_strategy": {{
+    "target_audience": {{"primary":"...", "secondary":"...", "future":"..."}},
+    "content_pillars": ["Lifestyle","Food","Behind the Scenes","UGC","Entertainment","Educational","Community"],
+    "monthly_content_mix": [
+      {{"pillar":"Food","percent":40}},
+      {{"pillar":"Lifestyle","percent":20}},
+      {{"pillar":"Community","percent":20}},
+      {{"pillar":"Entertainment","percent":20}}
+    ]
+  }},
+  "reel_ideas": [
+    {{"category":"POV|Storytelling|Trends|UGC|Food|Staff|Customer Reactions|Behind the Scenes","title":"...","hook":"...","description":"1-2 sentences"}}
+  ]
+}}
+
+Rules:
+- Generate 5-8 nearby_opportunities.
+- Generate 5-8 competitor_analysis entries (plausible if unknown).
+- Generate exactly 30 reel_ideas, distributed across the categories.
+- Be specific to the business's category and city.
+- Return ONLY the JSON object. No markdown, no prose."""
+
+def sales_kit_prompt(business_name: str, category: str, city: str, report: dict) -> str:
+    return f"""Given this intelligence report for {business_name} ({category}, {city}), generate a full sales kit as JSON.
+
+REPORT SUMMARY:
+{json.dumps(report.get("business_summary", {}), indent=2)}
+Instagram weaknesses: {json.dumps(report.get("instagram_audit", {}).get("weaknesses", []))}
+Quick wins: {json.dumps(report.get("instagram_audit", {}).get("quick_wins", []))}
+
+Return JSON of exactly this shape:
+{{
+  "cold_call_script": "Full script with intro, hook, value pitch, close. 200-300 words. Use [OWNER_NAME] placeholder.",
+  "instagram_dm": "60-90 word DM referencing 1 specific detail from the report.",
+  "whatsapp_message": "60-90 words, warm, conversational.",
+  "meeting_opening": "First 60 seconds script for the in-person or video meeting.",
+  "slide_speaker_notes": [
+    {{"slide":"Cover","notes":"what to say"}},
+    {{"slide":"Business Audit","notes":"..."}},
+    {{"slide":"Growth Opportunities","notes":"..."}},
+    {{"slide":"Strategy","notes":"..."}},
+    {{"slide":"Timeline","notes":"..."}},
+    {{"slide":"Pricing","notes":"..."}},
+    {{"slide":"Portfolio","notes":"..."}},
+    {{"slide":"Closing","notes":"..."}}
+  ],
+  "objection_handling": [
+    {{"objection":"I'm busy","response":"..."}},
+    {{"objection":"No budget","response":"..."}},
+    {{"objection":"Already have an agency","response":"..."}},
+    {{"objection":"Need to see results first","response":"..."}},
+    {{"objection":"Let me think and reply","response":"..."}}
+  ],
+  "closing_script": "Professional closing script, 100-150 words."
+}}
+
+Return ONLY the JSON object. No markdown."""
+
+def proposal_prompt(business_name: str, category: str, city: str, report: dict) -> str:
+    return f"""Given this intelligence report for {business_name} ({category}, {city}), generate a full proposal as JSON.
+
+REPORT HIGHLIGHTS:
+Positioning: {report.get("business_summary", {}).get("brand_positioning", "")}
+Instagram opportunities: {json.dumps(report.get("instagram_audit", {}).get("missed_opportunities", []))}
+Growth strategy: {json.dumps(report.get("growth_strategy", {}), indent=2)[:800]}
+
+Return JSON of exactly this shape:
+{{
+  "cover": {{"title":"Growth Blueprint for {business_name}","subtitle":"Prepared by RoopCraft"}},
+  "audit": {{"summary":"3-4 sentence summary of current brand state","key_findings":["4-6 bullets"]}},
+  "opportunities": {{"headline":"...","items":[{{"title":"...","description":"..."}}]}},
+  "strategy": {{"headline":"...","pillars":[{{"name":"...","description":"..."}}],"deliverables":["4-6 bullets"]}},
+  "timeline": [
+    {{"month":"Month 1","focus":"...","deliverables":["..."]}},
+    {{"month":"Month 2","focus":"...","deliverables":["..."]}},
+    {{"month":"Month 3","focus":"...","deliverables":["..."]}}
+  ],
+  "pricing": {{"note":"Add your rate here","package_name":"Growth Partner","monthly_estimate":"₹XX,XXX / month","includes":["4-6 bullets"]}},
+  "portfolio": {{"note":"Insert links or case studies","featured_cases":["Case Study 1","Case Study 2","Case Study 3"]}},
+  "closing": "Professional closing paragraph, 4-6 sentences."
+}}
+
+Return ONLY the JSON object. No markdown."""
+
+# --- Auth Routes ---
+@api.post("/auth/register", response_model=TokenResponse)
+async def register(body: UserCreate):
+    existing = await db.users.find_one({"email": body.email.lower()})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user_id = str(uuid.uuid4())
+    doc = {
+        "id": user_id,
+        "email": body.email.lower(),
+        "name": body.name,
+        "hashed_password": hash_password(body.password),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(doc)
+    token = create_access_token(user_id)
+    return TokenResponse(
+        access_token=token,
+        user=UserPublic(id=user_id, email=body.email.lower(), name=body.name),
+    )
+
+@api.post("/auth/login", response_model=TokenResponse)
+async def login(body: UserLogin):
+    user = await db.users.find_one({"email": body.email.lower()})
+    if not user or not verify_password(body.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_access_token(user["id"])
+    return TokenResponse(
+        access_token=token,
+        user=UserPublic(id=user["id"], email=user["email"], name=user["name"]),
+    )
+
+@api.get("/auth/me", response_model=UserPublic)
+async def me(current=Depends(get_current_user)):
+    return UserPublic(id=current["id"], email=current["email"], name=current["name"])
+
+# --- Dashboard Stats ---
+@api.get("/dashboard/stats")
+async def dashboard_stats(current=Depends(get_current_user)):
+    user_id = current["id"]
+    leads = await db.leads.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    total = len(leads)
+    by_status = {s: 0 for s in ["New","Contacted","Meeting Scheduled","Proposal Sent","Negotiation","Won","Lost"]}
+    for lead_doc in leads:
+        st = lead_doc.get("status", "New")
+        by_status[st] = by_status.get(st, 0) + 1
+    won = by_status["Won"]
+    closed = won + by_status["Lost"]
+    win_rate = round((won / closed) * 100) if closed > 0 else 0
+    this_month_revenue = 0  # placeholder — deal value tracking not in MVP
+    return {
+        "total_leads": total,
+        "meetings_scheduled": by_status["Meeting Scheduled"],
+        "proposals_sent": by_status["Proposal Sent"] + by_status["Negotiation"] + won + by_status["Lost"],
+        "active_clients": won,
+        "win_rate": win_rate,
+        "this_month_revenue": this_month_revenue,
+        "by_status": by_status,
+    }
+
+# --- Lead / Audit Routes ---
+@api.post("/leads")
+async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
+    """Create a lead + immediately generate AI intelligence report."""
+    lead_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    # Generate report
+    try:
+        chat = new_chat(f"report-{lead_id}", REPORT_SYSTEM, body.model)
+        response_text = await chat.send_message(UserMessage(text=report_prompt(body)))
+        report = extract_json(response_text)
+    except Exception as e:
+        logger.exception("Report generation failed")
+        raise HTTPException(status_code=500, detail=f"AI report generation failed: {str(e)}")
+
+    doc = {
+        "id": lead_id,
+        "user_id": current["id"],
+        "business_name": body.business_name,
+        "category": body.category,
+        "city": body.city,
+        "state": body.state,
+        "instagram_url": body.instagram_url or "",
+        "website_url": body.website_url or "",
+        "google_maps_url": body.google_maps_url or "",
+        "usp": body.usp or "",
+        "notes": body.notes or "",
+        "goal": body.goal or "",
+        "status": "New",
+        "model": body.model,
+        "report": report,
+        "sales_kit": None,
+        "proposal": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.leads.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/leads")
+async def list_leads(current=Depends(get_current_user)):
+    leads = await db.leads.find(
+        {"user_id": current["id"]},
+        {"_id": 0, "report": 0, "sales_kit": 0, "proposal": 0}
+    ).sort("created_at", -1).to_list(500)
+    return leads
+
+@api.get("/leads/{lead_id}")
+async def get_lead(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return lead
+
+@api.patch("/leads/{lead_id}/status")
+async def update_lead_status(lead_id: str, body: LeadStatusUpdate, current=Depends(get_current_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.leads.update_one(
+        {"id": lead_id, "user_id": current["id"]},
+        {"$set": {"status": body.status, "updated_at": now}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"success": True, "status": body.status}
+
+@api.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, current=Depends(get_current_user)):
+    result = await db.leads.delete_one({"id": lead_id, "user_id": current["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"success": True}
+
+@api.post("/leads/{lead_id}/sales-kit")
+async def generate_sales_kit(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("report"):
+        raise HTTPException(status_code=400, detail="Report not ready")
+    try:
+        chat = new_chat(f"saleskit-{lead_id}", SALES_KIT_SYSTEM, lead.get("model","gemini"))
+        text = await chat.send_message(UserMessage(
+            text=sales_kit_prompt(lead["business_name"], lead["category"], lead["city"], lead["report"])
+        ))
+        kit = extract_json(text)
+    except Exception as e:
+        logger.exception("Sales kit generation failed")
+        raise HTTPException(status_code=500, detail=f"Sales kit generation failed: {str(e)}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.leads.update_one(
+        {"id": lead_id, "user_id": current["id"]},
+        {"$set": {"sales_kit": kit, "updated_at": now}}
+    )
+    return kit
+
+@api.post("/leads/{lead_id}/proposal")
+async def generate_proposal(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("report"):
+        raise HTTPException(status_code=400, detail="Report not ready")
+    try:
+        chat = new_chat(f"proposal-{lead_id}", PROPOSAL_SYSTEM, lead.get("model","gemini"))
+        text = await chat.send_message(UserMessage(
+            text=proposal_prompt(lead["business_name"], lead["category"], lead["city"], lead["report"])
+        ))
+        proposal = extract_json(text)
+    except Exception as e:
+        logger.exception("Proposal generation failed")
+        raise HTTPException(status_code=500, detail=f"Proposal generation failed: {str(e)}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.leads.update_one(
+        {"id": lead_id, "user_id": current["id"]},
+        {"$set": {"proposal": proposal, "updated_at": now}}
+    )
+    return proposal
+
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "RoopCraft OS API", "status": "ok"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
-
-# Include the router in the main app
-app.include_router(api_router)
+# Include router
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,7 +502,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
