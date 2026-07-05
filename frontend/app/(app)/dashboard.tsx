@@ -74,19 +74,19 @@ export default function DashboardScreen() {
                 hint="All time"
               />
               <StatCard
-                testID="stat-meetings"
+                testID="stat-meetings-scheduled"
                 label="Meetings"
                 value={stats?.meetings_scheduled ?? 0}
                 hint="Scheduled"
               />
               <StatCard
-                testID="stat-proposals"
+                testID="stat-proposals-sent"
                 label="Proposals sent"
                 value={stats?.proposals_sent ?? 0}
                 hint="Sent to clients"
               />
               <StatCard
-                testID="stat-active"
+                testID="stat-active-clients"
                 label="Active clients"
                 value={stats?.active_clients ?? 0}
                 hint="Won deals"

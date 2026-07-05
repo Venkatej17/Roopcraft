@@ -2,12 +2,19 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 import { colors, spacing, radius, type as t } from "@/src/theme";
 import { useAuth } from "@/src/ctx/auth";
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
+
+  const doSignOut = async () => {
+    await signOut();
+    router.replace("/(auth)/sign-in");
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -38,7 +45,7 @@ export default function ProfileScreen() {
           testID="profile-signout-button"
           style={styles.signout}
           activeOpacity={0.85}
-          onPress={signOut}
+          onPress={doSignOut}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <Text style={styles.signoutText}>Sign out</Text>
