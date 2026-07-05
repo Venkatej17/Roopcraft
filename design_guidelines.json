@@ -1,0 +1,187 @@
+{
+  "app_name": "RoopCraft OS",
+  "personality": "1 iOS-Native Clean structure with 5 Brutalist starkness (monochrome + signal accent)",
+  "personality_one_liner": "A stark, high-contrast B2B workspace that feels instantly premium and actionable, relying on crisp black typography and signal orange to guide focus without heavy UI chrome.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#000000",
+    "surfaceSecondary": "#F7F7F7",
+    "onSurfaceSecondary": "#111111",
+    "surfaceTertiary": "#EAEAEA",
+    "onSurfaceTertiary": "#444444",
+    "surfaceInverse": "#111111",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#FF6B00",
+    "brandPrimary": "#FF6B00",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#FFF0E5",
+    "onBrandSecondary": "#D95B00",
+    "brandTertiary": "#FFE1CC",
+    "onBrandTertiary": "#CC5600",
+    "success": "#0A7A5F",
+    "onSuccess": "#FFFFFF",
+    "warning": "#B77C00",
+    "onWarning": "#FFFFFF",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "info": "#444444",
+    "onInfo": "#FFFFFF",
+    "border": "#EAEAEA",
+    "borderStrong": "#CCCCCC",
+    "divider": "#F2F2F2"
+  },
+  "typography": {
+    "displayFontFamily": "Geist",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for forms and reports. Tight grouping for stat cards to ensure scannability without clutter.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 16,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use glass on the sticky primary CTA container at the bottom of the Dashboard (+ New Business Audit).",
+      "Use glass on the bottom tab bar and sticky headers in the long-form Report and Proposal views.",
+      "Apply a white-tinted glass (light mode) or black-tinted (dark mode) under blur to guarantee readability."
+    ],
+    "dont's": [
+      "Do not use glass on stat cards, list items, or script cards—keep them solid surfaceSecondary."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Auth",
+      "purpose": "Secure entry point for agency owners, setting a premium tone.",
+      "states": {
+        "loading": "Centered brand-colored spinner.",
+        "empty": "N/A",
+        "error": "Inline red validation text below inputs."
+      },
+      "layout": "Hero image at the top taking up 35% of the screen. Clean, single-column input form below with labels above fields. A full-width solid brandPrimary button to Sign In."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "At-a-glance B2B KPI overview with an immediate path to generating new audits.",
+      "states": {
+        "loading": "Skeleton blocks matching stat card shapes.",
+        "empty": "Empty state illustration with 'Run your first audit to see stats'.",
+        "error": "Simple retry block."
+      },
+      "layout": "Grid of stat cards (2-col for smaller metrics, 1-col full width for Revenue/Win Rate) at the top. Below stats, a 'Recent Leads' snippet. A sticky glassmorphic container at the bottom containing the primary '+ New Business Audit' CTA."
+    },
+    {
+      "name": "Leads List",
+      "purpose": "Track and access all prospected businesses and their status.",
+      "states": {
+        "loading": "List of skeleton rows.",
+        "empty": "Minimalist folder line-art graphic, 'No leads captured yet. Start an audit.'",
+        "error": "Error message with retry."
+      },
+      "layout": "Sticky header with horizontal scrolling filter chips (All, Hot, Pitched, Closed). Vertical list of leads. Each row has bold lead name, status tag (brandTertiary chip), and subtext (date/category). Swipe row to quick-action (Email/Call)."
+    },
+    {
+      "name": "New Business Audit Form",
+      "purpose": "Collect business input to generate the AI report.",
+      "states": {
+        "loading": "N/A (Submit button shows loading spinner when generating).",
+        "empty": "N/A",
+        "error": "Form validation errors highlighted in red."
+      },
+      "layout": "Multi-step form flow with a top progress indicator (e.g., Step 1 of 3). Single-column fields, labels above inputs. Native bottom sheet for category dropdown. Sticky 'Next' button at the bottom."
+    },
+    {
+      "name": "AI Report View",
+      "purpose": "Display comprehensive AI-generated business insights in a structured, readable format.",
+      "states": {
+        "loading": "Shimmering text lines to simulate AI typing/generating.",
+        "empty": "N/A",
+        "error": "Failed generation message with retry."
+      },
+      "layout": "Cover image of the business at the top with a dark gradient scrim and white text. Scrollable vertical layout with distinct sections (Summary, Google Maps, IG Audit). Use rich text formatting and 'cards' for 30 Reel Ideas. Sticky tab/header to jump to Sales Kit or Proposal."
+    },
+    {
+      "name": "Sales Kit View",
+      "purpose": "Provide instant, actionable outreach scripts.",
+      "states": {
+        "loading": "Skeleton text blocks.",
+        "empty": "N/A",
+        "error": "Error loading scripts."
+      },
+      "layout": "Segmented control or tab row at the top (Cold Call, IG DM, WhatsApp, etc.). Clean typography for the script body inside a surfaceSecondary card. A prominent 'Copy Script' icon button at the top right of each card."
+    },
+    {
+      "name": "Proposal View",
+      "purpose": "Review and export the final pitch presentation.",
+      "states": {
+        "loading": "Spinner centered on page.",
+        "empty": "N/A",
+        "error": "Error loading proposal."
+      },
+      "layout": "Vertical scroll showing proposal sections (Cover, Audit, Timeline, Pricing). Pricing uses a distinct high-contrast card. A fixed glassmorphic bottom bar with a primary 'Export PDF/PPT' button."
+    }
+  ],
+  "images": {
+    "auth_hero": {
+      "url": "https://images.unsplash.com/photo-1770520212337-a04e65d0b53a",
+      "alt": "Abstract pattern of orange and cream shapes representing growth and networks"
+    },
+    "empty_leads": {
+      "url": "https://images.unsplash.com/photo-1538852212476-ea4451e6baa7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwbGluZSUyMGFydCUyMGVtcHR5JTIwYm94JTIwZm9sZGVyfGVufDB8fHx8MTc4MjYwNjYxN3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimalist envelope or folder for empty states"
+    },
+    "report_cover_sample": {
+      "url": "https://images.unsplash.com/photo-1579341560277-4dfaddaf6e98?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBtaW5pbWFsJTIwY2FmZSUyMGV4dGVyaW9yfGVufDB8fHx8MTc4MzE3Nzc0Nnww&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern minimal cafe exterior to serve as a sample business background"
+    }
+  },
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "tab_change": "selection",
+    "card_tap": "impactLight",
+    "copy_script_success": "notificationSuccess",
+    "form_submit": "impactMedium"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette: White backgrounds, crisp black typography, and #FF6B00 orange exclusively for primary actions and accents. Avoid any blue, purple, or generic grey-blue hues.",
+    "Implement the Dashboard with progressive disclosure: place the most vital KPIs at the top left, keep the view clean (3-4 KPIs max per viewport line), and use a fixed bottom glass container for the '+ New Business Audit' CTA so it is always within thumb reach.",
+    "For the New Business Audit Form, implement a multi-step design (e.g., Step 1 of X) with labels directly above the input fields to reduce cognitive load and fit the modern Notion/Linear aesthetic.",
+    "Leads List must feature strong visual hierarchy: Lead name in weight 500, with status tags and dates underneath. Add swipe-to-action (email/call) to list rows.",
+    "In AI Report View, any cover image must have a top-to-bottom vertical linear gradient scrim (transparent to dark) over the bottom 50% to guarantee text readability.",
+    "Ensure all interactive stat cards and list rows have a slight touch feedback via Reanimated scale (e.g., press down to 0.97) and haptic response."
+  ]
+}
