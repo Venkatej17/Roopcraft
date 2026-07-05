@@ -1,0 +1,50 @@
+{
+  "summary": "First testing run of RoopCraft OS MVP. Backend: 23/23 pytest tests PASSED (100%) — all auth (register/login/me/dup-email/bad-password), auth-guard (401), dashboard stats, lead CRUD, LLM-driven report generation (model=gemini), sales-kit generation, and proposal generation return the expected JSON shapes with all required keys. LLM endpoints returned a transient 'Budget exceeded' error on the very first run, but succeeded on the immediate re-run and generated well-formed reports (business_summary, google_maps_analysis, instagram_audit, nearby_opportunities, competitor_analysis, growth_strategy, reel_ideas). Frontend: sign-up → auto-signin → dashboard flow works; bottom tabs (Dashboard/Leads/Reports/Profile/New) all navigate; Profile shows correct name/email; New-Audit form has all testIDs (name/city/state/generate/model-gemini/claude/openai) and category picker modal opens with option testIDs. Deprecated packages detected: none. React Native web deprecation warnings observed for legacy 'shadow*' style props and 'props.pointerEvents' — main agent should migrate to boxShadow / style.pointerEvents. TestID naming mismatch on dashboard stat cards vs review-request spec (see action items). Sign-out click did not visibly navigate to /sign-in in test run — needs main-agent verification.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/leads (unauthenticated)", "issue": "Returns 403 Forbidden instead of 401 Unauthorized when Authorization header is missing. FastAPI HTTPBearer default. Test accepts 401/403, but strict spec says 401."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "dashboard.tsx stat cards", "issue": "testID naming inconsistent with review spec. Actual: stat-meetings, stat-proposals, stat-active, stat-win-rate. Expected (per spec): stat-meetings-scheduled, stat-proposals-sent, stat-active-clients. Rename for consistency.", "testID": "stat-meetings/stat-proposals/stat-active", "priority": "LOW"},
+      {"component": "Bottom tabs (app/(app)/_layout.tsx)", "issue": "Tab bar items rely on default expo-router Tabs.Screen buttons; no testID on individual tab buttons. Playwright had to fall back to text selectors (Dashboard/Leads/Reports/Profile). Consider using tabBarButtonTestID or a custom tabBar for reliable e2e selectors.", "testID": "", "priority": "LOW"},
+      {"component": "profile signout", "issue": "After tapping profile-signout-button on web, the URL remained at /new-audit and the sign-in form did not appear on the following screen. This may be a test-context artifact (previous form state) but should be verified by the main agent — expected behavior is redirect to /(auth)/sign-in after clearing token.", "testID": "profile-signout-button", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Web console (Expo web preview)", "issues": [
+        "'shadow*' style props deprecated warning — migrate to boxShadow for RN web compatibility.",
+        "'props.pointerEvents is deprecated. Use style.pointerEvents' — likely from a Modal or overlay component."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/lead_crud_seeded_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Rename dashboard stat card testIDs to match spec: stat-meetings-scheduled, stat-proposals-sent, stat-active-clients (currently stat-meetings, stat-proposals, stat-active) in /app/frontend/app/(app)/dashboard.tsx.",
+    "Verify profile sign-out redirects to /(auth)/sign-in on web. If router.replace to sign-in is not called after signOut(), add it.",
+    "Migrate deprecated RN-web style props: replace shadow* props with boxShadow, and props.pointerEvents with style.pointerEvents (likely in Modal/overlay components under src/ or app/(app)/new-audit.tsx).",
+    "Optionally: change HTTPBearer(auto_error=True) behavior so /api/leads returns 401 instead of 403 when Authorization header is missing (spec says 401)."
+  ],
+  "critical_code_review_comments": [
+    "server.py: `logger` is defined at line 509 but used inside route handlers (e.g., logger.exception in create_lead at line 383) which are defined earlier. Because logger.exception is only called on exception paths at request-time (not import-time), this works, but it's fragile. Move logging.basicConfig + logger definition to the top of the module.",
+    "server.py: DELETE /api/leads/{id} returns 200 with {success:true}; typically DELETE returns 204 No Content. Minor.",
+    "server.py: extract_json falls back to {'raw': text} on parse failure — good defensive handling; tests already assert 'raw' NOT in report."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (created)",
+    "/app/backend/tests/lead_crud_seeded_test.py (created)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "~90% (all core flows work; sign-out redirect + stat-card testID names need verification/fix)"},
+  "seed_data_creation": "Created unique TEST_-prefixed users via /api/auth/register per test run. In lead_crud_seeded_test.py, a lead is inserted directly into MongoDB (bypassing LLM) with an id prefixed with a UUID and business_name 'TEST_Seeded Cafe' — it is DELETEd at the end of the module.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend + LLM integrations are fully green. If retesting, run: `pytest /app/backend/tests/ -v --tb=short`. Emergent LLM key showed a transient 'Budget exceeded' response on first request but succeeded on retry — if seen again, simply rerun. Focus next iteration on: (a) verifying sign-out UX redirect on web, (b) confirming the renamed dashboard stat-card testIDs, and (c) end-to-end frontend audit-generation once main agent confirms LLM budget is stable.",
+  "rca_of_issue": "N/A — no critical bugs. The initial 'AI report generation failed: Budget has been exceeded! Current cost: 0.0, Max budget: 0.0' was transient (litellm/OpenAI wrapper) and self-recovered on immediate retry (all 3 LLM endpoints then succeeded). If it recurs persistently, the Emergent LLM key/budget will need main-agent-side investigation, not code changes."
+}
