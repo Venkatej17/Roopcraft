@@ -130,9 +130,9 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(securit
 
 # --- Model mapping ---
 MODEL_MAP = {
-    "gemini": ("gemini", "gemini-2.5-flash"),
-    "claude": ("anthropic", "claude-sonnet-4-5-20250929"),
-    "openai": ("openai", "gpt-5.2"),
+    "gemini": ("gemini", "gemini-3-flash-preview"),
+    "claude": ("anthropic", "claude-sonnet-5"),
+    "openai": ("openai", "gpt-5.5"),
 }
 
 def new_chat(session_id: str, system_message: str, model_choice: str) -> LlmChat:
