@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt as pyjwt
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from llm_chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -24,7 +24,6 @@ load_dotenv(ROOT_DIR / '.env')
 # --- Config ---
 MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
-EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 JWT_SECRET = os.environ['JWT_SECRET_KEY']
 JWT_ALG = os.environ.get('JWT_ALGORITHM', 'HS256')
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 10080))
@@ -130,7 +129,7 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(securit
 
 # --- Model mapping ---
 MODEL_MAP = {
-    "gemini": ("gemini", "gemini-3.1-pro-preview"),
+    "gemini": ("gemini", "gemini-2.5-flash"),
     "claude": ("anthropic", "claude-sonnet-4-5-20250929"),
     "openai": ("openai", "gpt-5.2"),
 }
@@ -138,7 +137,6 @@ MODEL_MAP = {
 def new_chat(session_id: str, system_message: str, model_choice: str) -> LlmChat:
     provider, model_name = MODEL_MAP.get(model_choice, MODEL_MAP["gemini"])
     return LlmChat(
-        api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
         system_message=system_message,
     ).with_model(provider, model_name)
