@@ -1,8 +1,9 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient  
+from motor.motor_asyncio import AsyncIOMotorClient
 import certifi
 import os
 import json
@@ -18,6 +19,7 @@ import bcrypt
 import jwt as pyjwt
 
 from llm_chat import LlmChat, UserMessage
+from pptx_export import build_proposal_pptx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -74,6 +76,37 @@ class AuditCreate(BaseModel):
 
 class LeadStatusUpdate(BaseModel):
     status: LeadStatus
+
+class CreatorAuditCreate(BaseModel):
+    instagram_handle: str
+    niche: Optional[str] = ""
+    follower_count: Optional[str] = ""
+    avg_likes: Optional[str] = ""
+    avg_comments: Optional[str] = ""
+    posting_frequency: Optional[str] = ""
+    bio: Optional[str] = ""
+    recent_captions: Optional[List[str]] = []
+    content_notes: Optional[str] = ""
+    collab_goal: Optional[str] = ""
+    model: ModelChoice = "gemini"
+
+class CreatorAudit(BaseModel):
+    id: str
+    user_id: str
+    instagram_handle: str
+    niche: str
+    follower_count: str
+    avg_likes: str
+    avg_comments: str
+    posting_frequency: str
+    bio: str
+    recent_captions: List[str]
+    content_notes: str
+    collab_goal: str
+    model: str
+    audit: Optional[Dict[str, Any]] = None
+    created_at: str
+    updated_at: str
 
 class Lead(BaseModel):
     id: str
@@ -174,6 +207,62 @@ Always return valid JSON only. Scripts must feel human, warm, specific, and refe
 PROPOSAL_SYSTEM = """You are RoopCraft OS — a proposal architect for creative agencies.
 Given a business intelligence report and sales kit, generate a full multi-section proposal.
 Always return valid JSON only. Sections should be crisp, persuasive, and business-specific."""
+
+CREATOR_AUDIT_SYSTEM = """You are RoopCraft OS — a talent scout and partnerships strategist for a creative agency
+that connects brands with under-the-radar Instagram creators. You're evaluating a creator who has approached
+the agency directly, usually someone with modest reach but genuinely strong content, to assess whether they're
+worth partnering with and how to structure that partnership.
+Always return valid JSON only, no prose outside the JSON. Be honest and specific — call out real weaknesses
+alongside strengths, don't just flatter. Base every judgment only on the data actually provided; do not invent
+follower counts, engagement numbers, or facts not given."""
+
+def creator_audit_prompt(a: CreatorAuditCreate) -> str:
+    captions_block = "\n".join(f"- {c}" for c in (a.recent_captions or [])) or "N/A"
+    return f"""Analyze the following Instagram creator profile (all data below was manually collected by the
+agency from the creator's public profile — treat it as ground truth, do not assume anything beyond it) and
+produce a partnership-readiness audit as JSON.
+
+CREATOR INPUT
+Handle: @{a.instagram_handle}
+Niche: {a.niche or "N/A"}
+Follower count: {a.follower_count or "N/A"}
+Average likes per post: {a.avg_likes or "N/A"}
+Average comments per post: {a.avg_comments or "N/A"}
+Posting frequency: {a.posting_frequency or "N/A"}
+Bio: {a.bio or "N/A"}
+Recent post captions:
+{captions_block}
+Agency's notes on their content quality: {a.content_notes or "N/A"}
+Reason for reaching out / collab goal: {a.collab_goal or "General brand partnership"}
+
+Return a JSON object with exactly this shape:
+{{
+  "engagement_analysis": {{
+    "estimated_engagement_rate": "string like '4.2%', computed from avg_likes+avg_comments vs follower_count if numbers are parseable, otherwise 'insufficient data'",
+    "engagement_quality": "1-2 sentence read on whether engagement looks healthy/organic for this follower count",
+    "reach_vs_quality_verdict": "1-2 sentences: is this a small-but-mighty account worth the bet, or a red flag?"
+  }},
+  "content_quality_assessment": {{
+    "strengths": ["3-5 specific items based on the captions/notes given"],
+    "weaknesses": ["2-4 specific items"],
+    "consistency": "1-2 sentence assessment of posting frequency and content rhythm",
+    "voice_and_style": "1-2 sentences describing their apparent content voice/aesthetic"
+  }},
+  "audience_fit": {{
+    "likely_audience": "1-2 sentences on who probably follows this creator based on niche/content",
+    "brand_categories_that_fit_well": ["3-5 short items, e.g. 'Local cafes', 'Sustainable fashion'"]
+  }},
+  "collaboration_potential": {{
+    "verdict": "Strong Fit | Worth Testing | Not Ready Yet",
+    "reasoning": "2-3 sentences justifying the verdict",
+    "suggested_formats": ["3-5 items, e.g. 'Single Reel feature', 'Story takeover', 'Affiliate/discount code'"]
+  }},
+  "negotiation_talking_points": ["3-5 specific points the agency can raise when discussing terms, grounded in the data given"],
+  "red_flags_to_verify": ["2-4 things worth double-checking in person before committing, e.g. engagement authenticity, audience location match — empty array if genuinely none"],
+  "outreach_message": "a warm, specific 70-110 word DM/email draft the agency can send this creator, referencing at least one real detail from their profile above"
+}}"""
+
+
 
 def report_prompt(a: AuditCreate) -> str:
     return f"""Analyze the following business and generate a comprehensive intelligence report as JSON.
@@ -485,6 +574,80 @@ async def generate_proposal(lead_id: str, current=Depends(get_current_user)):
         {"$set": {"proposal": proposal, "updated_at": now}}
     )
     return proposal
+
+@api.get("/leads/{lead_id}/proposal/pptx")
+async def download_proposal_pptx(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("proposal"):
+        raise HTTPException(status_code=400, detail="Generate the proposal first")
+    buf = build_proposal_pptx(
+        lead["proposal"], lead["business_name"], lead["category"], lead["city"]
+    )
+    filename = f"{lead['business_name'].replace(' ', '_')}_Proposal.pptx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@api.post("/creators")
+async def create_creator_audit(body: CreatorAuditCreate, current=Depends(get_current_user)):
+    """Create a creator record + immediately generate an AI partnership audit."""
+    creator_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        chat = new_chat(f"creator-audit-{creator_id}", CREATOR_AUDIT_SYSTEM, body.model)
+        response_text = await chat.send_message(UserMessage(text=creator_audit_prompt(body)))
+        audit = extract_json(response_text)
+    except Exception as e:
+        logger.exception("Creator audit generation failed")
+        raise HTTPException(status_code=500, detail=f"AI audit generation failed: {str(e)}")
+
+    doc = {
+        "id": creator_id,
+        "user_id": current["id"],
+        "instagram_handle": body.instagram_handle,
+        "niche": body.niche or "",
+        "follower_count": body.follower_count or "",
+        "avg_likes": body.avg_likes or "",
+        "avg_comments": body.avg_comments or "",
+        "posting_frequency": body.posting_frequency or "",
+        "bio": body.bio or "",
+        "recent_captions": body.recent_captions or [],
+        "content_notes": body.content_notes or "",
+        "collab_goal": body.collab_goal or "",
+        "model": body.model,
+        "audit": audit,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.creators.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/creators")
+async def list_creator_audits(current=Depends(get_current_user)):
+    creators = await db.creators.find(
+        {"user_id": current["id"]},
+        {"_id": 0, "audit": 0, "recent_captions": 0}
+    ).sort("created_at", -1).to_list(500)
+    return creators
+
+@api.get("/creators/{creator_id}")
+async def get_creator_audit(creator_id: str, current=Depends(get_current_user)):
+    creator = await db.creators.find_one({"id": creator_id, "user_id": current["id"]}, {"_id": 0})
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator not found")
+    return creator
+
+@api.delete("/creators/{creator_id}")
+async def delete_creator_audit(creator_id: str, current=Depends(get_current_user)):
+    result = await db.creators.delete_one({"id": creator_id, "user_id": current["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Creator not found")
+    return {"success": True}
 
 @api.get("/")
 async def root():
