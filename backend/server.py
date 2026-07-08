@@ -19,7 +19,6 @@ import bcrypt
 import jwt as pyjwt
 
 from llm_chat import LlmChat, UserMessage
-from pptx_export import build_proposal_pptx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -574,23 +573,6 @@ async def generate_proposal(lead_id: str, current=Depends(get_current_user)):
         {"$set": {"proposal": proposal, "updated_at": now}}
     )
     return proposal
-
-@api.get("/leads/{lead_id}/proposal/pptx")
-async def download_proposal_pptx(lead_id: str, current=Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    if not lead.get("proposal"):
-        raise HTTPException(status_code=400, detail="Generate the proposal first")
-    buf = build_proposal_pptx(
-        lead["proposal"], lead["business_name"], lead["category"], lead["city"]
-    )
-    filename = f"{lead['business_name'].replace(' ', '_')}_Proposal.pptx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 @api.post("/creators")
 async def create_creator_audit(body: CreatorAuditCreate, current=Depends(get_current_user)):
