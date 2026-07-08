@@ -19,6 +19,7 @@ import bcrypt
 import jwt as pyjwt
 
 from llm_chat import LlmChat, UserMessage
+from pptx_export import build_proposal_pptx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -197,7 +198,22 @@ def extract_json(text: str) -> Dict[str, Any]:
 # --- Prompts ---
 REPORT_SYSTEM = """You are RoopCraft OS — a premier B2B growth strategist for local businesses.
 You produce comprehensive, actionable business intelligence reports for agency owners preparing to pitch clients.
-Always return valid JSON only, no prose outside the JSON. Be specific, insightful and strategic. Avoid generic filler."""
+Always return valid JSON only, no prose outside the JSON. Be specific, insightful and strategic. Avoid generic filler.
+
+For any reel/content ideas you generate, act as an elite Instagram Growth Strategist and Algorithm Expert,
+following this framework:
+1. UNDERSTAND THE NICHE: Before generating any idea, ground it in this specific business's target audience,
+   their real pain points, and what would actually make THEM personally share or save a post — not generic advice.
+2. OPTIMIZE FOR SHARES & RETENTION: Reverse-engineer the current Instagram algorithm's core engine signals —
+   Watch Time (retention), Shares (DM forwarding), and Saves (value density). Do NOT recommend outdated tactics
+   like hashtag stuffing, generic engagement pods, or unoriginal reposting. Every reel idea must include a
+   "3-Second Hook" (the exact first line/on-screen text that stops the scroll) and a Share-or-Save-Optimized
+   angle (why someone would send this to a friend or save it for later, not just like it).
+3. PROVIDE ACTIONABLE BLUEPRINTS: Do not give vague one-line concepts. Give an exact shot-by-shot script layout
+   (what happens second-by-second, on-screen text at each beat) so it could be filmed directly from your output.
+4. TECHNICAL ALIGNMENT: Note technical alignment tips where relevant — native text overlays, trending audio,
+   high-definition upload, and SEO keywords in the caption/on-screen text.
+Tone for this content: practical, direct, encouraging, like an expert peer — no robotic corporate phrasing."""
 
 SALES_KIT_SYSTEM = """You are RoopCraft OS — a world class sales copywriter for creative agencies.
 Given a business intelligence report, generate personalized outreach scripts and sales content.
@@ -213,7 +229,25 @@ the agency directly, usually someone with modest reach but genuinely strong cont
 worth partnering with and how to structure that partnership.
 Always return valid JSON only, no prose outside the JSON. Be honest and specific — call out real weaknesses
 alongside strengths, don't just flatter. Base every judgment only on the data actually provided; do not invent
-follower counts, engagement numbers, or facts not given."""
+follower counts, engagement numbers, or facts not given.
+Before analyzing, sanity-check the numbers given: if average likes or comments are impossibly high relative to
+follower count (e.g. average likes exceeding total followers, or an implied engagement rate above ~25%, which is
+very rare organically), or if any figures look internally inconsistent, do not silently accept them — call this
+out explicitly in "data_plausibility" and let it lower your confidence in the rest of the audit accordingly.
+
+For the reel ideas and growth recommendations specifically, act as an elite Instagram Growth Strategist and
+Algorithm Expert, following this framework:
+1. UNDERSTAND THE NICHE: Ground every idea in this specific creator's actual niche, their likely audience's
+   pain points, and what would make THAT audience personally share or save a post — not generic advice.
+2. OPTIMIZE FOR SHARES & RETENTION: Reverse-engineer the current Instagram algorithm's core engine signals —
+   Watch Time (retention), Shares (DM forwarding), and Saves (value density). Do NOT recommend outdated tactics
+   like hashtag stuffing, generic engagement pods, or unoriginal reposting. Every reel idea must include a
+   "3-Second Hook" (the exact first line/on-screen text that stops the scroll) and a share-or-save-optimized angle.
+3. PROVIDE ACTIONABLE BLUEPRINTS: Give an exact shot-by-shot script layout, not a vague one-line concept —
+   something filmable directly from your output.
+4. TECHNICAL ALIGNMENT: Note technical tips where relevant — native text overlays, trending audio, high-definition
+   upload, SEO keywords in caption/on-screen text.
+Tone for this section: practical, direct, encouraging, like an expert peer — no robotic corporate phrasing."""
 
 def creator_audit_prompt(a: CreatorAuditCreate) -> str:
     captions_block = "\n".join(f"- {c}" for c in (a.recent_captions or [])) or "N/A"
@@ -236,6 +270,10 @@ Reason for reaching out / collab goal: {a.collab_goal or "General brand partners
 
 Return a JSON object with exactly this shape:
 {{
+  "data_plausibility": {{
+    "looks_consistent": true,
+    "flags": ["array of specific concerns if any numbers look implausible or inconsistent, empty array if none"]
+  }},
   "engagement_analysis": {{
     "estimated_engagement_rate": "string like '4.2%', computed from avg_likes+avg_comments vs follower_count if numbers are parseable, otherwise 'insufficient data'",
     "engagement_quality": "1-2 sentence read on whether engagement looks healthy/organic for this follower count",
@@ -258,6 +296,17 @@ Return a JSON object with exactly this shape:
   }},
   "negotiation_talking_points": ["3-5 specific points the agency can raise when discussing terms, grounded in the data given"],
   "red_flags_to_verify": ["2-4 things worth double-checking in person before committing, e.g. engagement authenticity, audience location match — empty array if genuinely none"],
+  "growth_recommendations": {{
+    "best_times_to_post": ["3-4 specific day+time slots suited to this niche and likely audience, e.g. 'Tue/Thu 7-9pm IST — after work scroll window'"],
+    "seo_and_discoverability": {{
+      "bio_keywords_to_add": ["3-5 specific words/phrases missing from their bio that would improve searchability"],
+      "hashtag_strategy": "1-2 sentences on hashtag approach for this niche (mix of broad/niche/branded)",
+      "sample_hashtags": ["8-12 realistic hashtags fitting this niche"]
+    }},
+    "reel_ideas": [
+      {{"hook": "the exact 3-second hook — first 1-2 lines/on-screen text that stops the scroll", "shot_by_shot_script": "a concrete second-by-second shot list, filmable directly, not a vague summary", "share_save_angle": "why someone would DM this to a friend or save it, not just like it", "cta": "exact words/on-screen text at the end"}}
+    ]
+  }},
   "outreach_message": "a warm, specific 70-110 word DM/email draft the agency can send this creator, referencing at least one real detail from their profile above"
 }}"""
 
@@ -322,14 +371,20 @@ Return a JSON object with exactly this shape:
     ]
   }},
   "reel_ideas": [
-    {{"category":"POV|Storytelling|Trends|UGC|Food|Staff|Customer Reactions|Behind the Scenes","title":"...","hook":"...","description":"1-2 sentences"}}
+    {{"category":"POV|Storytelling|Trends|UGC|Food|Staff|Customer Reactions|Behind the Scenes",
+      "title":"...",
+      "hook":"exact 3-second hook — the first line or on-screen text that stops the scroll",
+      "shot_by_shot_script":"a concrete second-by-second shot list, e.g. '0-3s: hook on-screen, close-up of X. 3-8s: cut to Y, on-screen text: ...' — filmable directly, not a vague summary",
+      "share_save_angle":"why someone would DM this to a friend or save it for later, not just like it",
+      "cta":"exact words/on-screen text for the call to action at the end",
+      "technical_notes":"1 short tip: trending audio type, native text placement, or caption/SEO keyword to use"}}
   ]
 }}
 
 Rules:
 - Generate 5-8 nearby_opportunities.
 - Generate 5-8 competitor_analysis entries (plausible if unknown).
-- Generate exactly 30 reel_ideas, distributed across the categories.
+- Generate exactly 30 reel_ideas, distributed across the categories, each with a genuinely distinct hook and share/save angle.
 - Be specific to the business's category and city.
 - Return ONLY the JSON object. No markdown, no prose."""
 
@@ -573,6 +628,23 @@ async def generate_proposal(lead_id: str, current=Depends(get_current_user)):
         {"$set": {"proposal": proposal, "updated_at": now}}
     )
     return proposal
+
+@api.get("/leads/{lead_id}/proposal/pptx")
+async def download_proposal_pptx(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("proposal"):
+        raise HTTPException(status_code=400, detail="Generate the proposal first")
+    buf = build_proposal_pptx(
+        lead["proposal"], lead["business_name"], lead["category"], lead["city"]
+    )
+    filename = f"{lead['business_name'].replace(' ', '_')}_Proposal.pptx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @api.post("/creators")
 async def create_creator_audit(body: CreatorAuditCreate, current=Depends(get_current_user)):
