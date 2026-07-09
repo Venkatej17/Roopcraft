@@ -20,6 +20,7 @@ import jwt as pyjwt
 import requests
 
 from llm_chat import LlmChat, UserMessage
+from pdf_export import build_report_pdf
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -603,6 +604,23 @@ async def get_lead(lead_id: str, current=Depends(get_current_user)):
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
+
+@api.get("/leads/{lead_id}/report/pdf")
+async def download_report_pdf(lead_id: str, current=Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "user_id": current["id"]}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("report"):
+        raise HTTPException(status_code=400, detail="Generate the report first")
+    buf = build_report_pdf(
+        lead["report"], lead["business_name"], lead["category"], lead["city"], lead["state"]
+    )
+    filename = f"{lead['business_name'].replace(' ', '_')}_Report.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @api.patch("/leads/{lead_id}/status")
 async def update_lead_status(lead_id: str, body: LeadStatusUpdate, current=Depends(get_current_user)):
