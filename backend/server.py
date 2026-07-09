@@ -307,10 +307,15 @@ Return a JSON object with exactly this shape:
     }},
     "reel_ideas": [
       {{"hook": "the exact 3-second hook — first 1-2 lines/on-screen text that stops the scroll", "shot_by_shot_script": "a concrete second-by-second shot list, filmable directly, not a vague summary", "share_save_angle": "why someone would DM this to a friend or save it, not just like it", "cta": "exact words/on-screen text at the end"}}
+      // ... generate exactly 30 of these objects in this array, each genuinely distinct in hook/angle/script
     ]
   }},
   "outreach_message": "a warm, specific 70-110 word DM/email draft the agency can send this creator, referencing at least one real detail from their profile above"
-}}"""
+}}
+
+Rules:
+- Generate exactly 30 reel_ideas inside growth_recommendations, each with a genuinely distinct hook, script, and share/save angle — do not repeat concepts.
+- Return ONLY the JSON object. No markdown, no prose outside the JSON."""
 
 
 
