@@ -380,7 +380,7 @@ Return a JSON object with exactly this shape:
   }},
   "reel_ideas": [
     {{"category":"POV|Storytelling|Trends|UGC|Food|Staff|Customer Reactions|Behind the Scenes",
-      "title":"...",
+      "title","description":"1-2 sentences":"...",
       "hook":"exact 3-second hook — the first line or on-screen text that stops the scroll",
       "shot_by_shot_script":"a concrete second-by-second shot list, e.g. '0-3s: hook on-screen, close-up of X. 3-8s: cut to Y, on-screen text: ...' — filmable directly, not a vague summary",
       "share_save_angle":"why someone would DM this to a friend or save it for later, not just like it",
