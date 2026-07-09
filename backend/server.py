@@ -672,6 +672,8 @@ async def create_creator_audit(body: CreatorAuditCreate, current=Depends(get_cur
         chat = new_chat(f"creator-audit-{creator_id}", CREATOR_AUDIT_SYSTEM, body.model)
         response_text = await chat.send_message(UserMessage(text=creator_audit_prompt(body)))
         audit = extract_json(response_text)
+        _reels = audit.get("growth_recommendations", {}).get("reel_ideas", [])
+        logger.info("DEBUG creator reel_ideas[0] keys: %s", list(_reels[0].keys()) if _reels else "NO REEL IDEAS")
     except Exception as e:
         logger.exception("Creator audit generation failed")
         raise HTTPException(status_code=500, detail=f"AI audit generation failed: {str(e)}")
