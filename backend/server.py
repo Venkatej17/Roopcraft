@@ -307,7 +307,7 @@ Return a JSON object with exactly this shape:
       "sample_hashtags": ["8-12 realistic hashtags fitting this niche"]
     }},
     "reel_ideas": [
-      {{"hook": "the exact 3-second hook — first 1-2 lines/on-screen text that stops the scroll", "shot_by_shot_script": "a concrete second-by-second shot list, filmable directly, not a vague summary", "share_save_angle": "why someone would DM this to a friend or save it, not just like it", "cta": "exact words/on-screen text at the end"}}
+      {{"hook": "the exact 3-second hook — first 1-2 lines/on-screen text that stops the scroll", "shot_by_shot_script": "a full 3-5 sentence shot-by-shot breakdown (not a compact timestamp list) — enough narrative detail that someone unfamiliar with the idea could film it directly: opening shot, what happens in the middle, how it resolves, any on-screen text shown", "share_save_angle": "why someone would DM this to a friend or save it, not just like it", "cta": "exact words/on-screen text at the end"}}
       // ... generate exactly 30 of these objects in this array, each genuinely distinct in hook/angle/script
     ]
   }},
@@ -382,8 +382,7 @@ Return a JSON object with exactly this shape:
     {{"category":"POV|Storytelling|Trends|UGC|Food|Staff|Customer Reactions|Behind the Scenes",
       "title":"...",
       "hook":"exact 3-second hook — the first line or on-screen text that stops the scroll",
-      "description":"1-2 sentences",
-      "shot_by_shot_script":"a concrete second-by-second shot list, e.g. '0-3s: hook on-screen, close-up of X. 3-8s: cut to Y, on-screen text: ...' — filmable directly, not a vague summary",
+      "shot_by_shot_script":"a full 3-5 SENTENCE shot-by-shot breakdown (not a compact timestamp list) — describe what happens at each beat in enough narrative detail that someone unfamiliar with the idea could film it directly: opening shot, what happens in the middle, how it resolves, and any on-screen text shown along the way",
       "share_save_angle":"why someone would DM this to a friend or save it for later, not just like it",
       "cta":"exact words/on-screen text for the call to action at the end",
       "technical_notes":"1 short tip: trending audio type, native text placement, or caption/SEO keyword to use"}}
