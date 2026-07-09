@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt as pyjwt
+import requests
 
 from llm_chat import LlmChat, UserMessage
 
@@ -27,6 +28,7 @@ load_dotenv(ROOT_DIR / '.env')
 MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
 JWT_SECRET = os.environ['JWT_SECRET_KEY']
+GOOGLE_PLACES_API_KEY = os.environ.get('GOOGLE_PLACES_API_KEY', '')
 JWT_ALG = os.environ.get('JWT_ALGORITHM', 'HS256')
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 10080))
 
@@ -117,6 +119,7 @@ class Lead(BaseModel):
     instagram_url: str
     website_url: str
     google_maps_url: str
+    business_phone: str
     usp: str
     notes: str
     goal: str
@@ -509,6 +512,34 @@ async def dashboard_stats(current=Depends(get_current_user)):
         "by_status": by_status,
     }
 
+def lookup_business_phone(business_name: str, category: str, city: str, state: str) -> Optional[str]:
+    """Look up a business's publicly-listed phone number via Google Places API (New).
+    Returns None (never raises) if no key is configured, nothing is found, or the call fails —
+    a missing phone number should never break report generation."""
+    if not GOOGLE_PLACES_API_KEY:
+        return None
+    try:
+        query = f"{business_name}, {category}, {city}, {state}"
+        resp = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+                "X-Goog-FieldMask": "places.nationalPhoneNumber,places.internationalPhoneNumber,places.displayName",
+            },
+            json={"textQuery": query, "maxResultCount": 1},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        places = resp.json().get("places", [])
+        if not places:
+            return None
+        place = places[0]
+        return place.get("nationalPhoneNumber") or place.get("internationalPhoneNumber")
+    except Exception:
+        logger.exception("Google Places phone lookup failed (non-fatal, continuing without it)")
+        return None
+
 # --- Lead / Audit Routes ---
 @api.post("/leads")
 async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
@@ -520,9 +551,12 @@ async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
         chat = new_chat(f"report-{lead_id}", REPORT_SYSTEM, body.model)
         response_text = await chat.send_message(UserMessage(text=report_prompt(body)))
         report = extract_json(response_text)
+        logger.info("DEBUG reel_ideas[0] keys: %s", list(report.get("reel_ideas", [{}])[0].keys()) if report.get("reel_ideas") else "NO REEL IDEAS")
     except Exception as e:
         logger.exception("Report generation failed")
         raise HTTPException(status_code=500, detail=f"AI report generation failed: {str(e)}")
+
+    business_phone = lookup_business_phone(body.business_name, body.category, body.city, body.state)
 
     doc = {
         "id": lead_id,
@@ -534,6 +568,7 @@ async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
         "instagram_url": body.instagram_url or "",
         "website_url": body.website_url or "",
         "google_maps_url": body.google_maps_url or "",
+        "business_phone": business_phone or "",
         "usp": body.usp or "",
         "notes": body.notes or "",
         "goal": body.goal or "",
