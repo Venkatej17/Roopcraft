@@ -57,14 +57,14 @@ class LlmChat:
                 "GEMINI_API_KEY is not set. Get a free key at https://aistudio.google.com/apikey "
                 "and add it to your backend .env file."
             )
-        model = self.model or "gemini-2.5-flash"
+        model = self.model or "gemini-3-flash-preview"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         payload = {
             "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         }
         if self.system_message:
             payload["systemInstruction"] = {"parts": [{"text": self.system_message}]}
-        resp = requests.post(url, json=payload, timeout=60)
+        resp = requests.post(url, json=payload, timeout=240)
         resp.raise_for_status()
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -73,7 +73,7 @@ class LlmChat:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set. Add it to your backend .env file.")
-        model = self.model or "gpt-4o-mini"
+        model = self.model or "gpt-5.5"
         messages = []
         if self.system_message:
             messages.append({"role": "system", "content": self.system_message})
@@ -82,7 +82,7 @@ class LlmChat:
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={"model": model, "messages": messages},
-            timeout=60,
+            timeout=240,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -91,7 +91,7 @@ class LlmChat:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not set. Add it to your backend .env file.")
-        model = self.model or "claude-sonnet-4-5"
+        model = self.model or "claude-sonnet-5"
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -104,7 +104,7 @@ class LlmChat:
                 "system": self.system_message or None,
                 "messages": [{"role": "user", "content": user_text}],
             },
-            timeout=60,
+            timeout=240,
         )
         resp.raise_for_status()
         return resp.json()["content"][0]["text"]
