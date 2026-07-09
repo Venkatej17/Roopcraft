@@ -69,6 +69,22 @@ class AuditCreate(BaseModel):
     city: str
     state: str
     instagram_url: Optional[str] = ""
+    current_followers: Optional[str] = ""
+    target_followers: Optional[str] = ""
+    avg_reel_views: Optional[str] = ""
+    avg_reel_likes: Optional[str] = ""
+    avg_reel_comments: Optional[str] = ""
+    posting_activity: Optional[str] = ""
+    instagram_context: Optional[str] = ""
+    current_bio_text: Optional[str] = ""
+    target_audience_input: Optional[str] = ""
+    primary_keywords: Optional[str] = ""
+    link_in_bio: Optional[str] = ""
+    top_posts: Optional[str] = ""
+    worst_content: Optional[str] = ""
+    content_pillars_current: Optional[str] = ""
+    competitors_named: Optional[str] = ""
+    filming_style: Optional[str] = ""
     website_url: Optional[str] = ""
     google_maps_url: Optional[str] = ""
     usp: Optional[str] = ""
@@ -90,6 +106,15 @@ class CreatorAuditCreate(BaseModel):
     recent_captions: Optional[List[str]] = []
     content_notes: Optional[str] = ""
     collab_goal: Optional[str] = ""
+    target_audience_input: Optional[str] = ""
+    primary_keywords: Optional[str] = ""
+    link_in_bio: Optional[str] = ""
+    top_posts: Optional[str] = ""
+    worst_content: Optional[str] = ""
+    content_pillars_current: Optional[str] = ""
+    competitors_named: Optional[str] = ""
+    filming_style: Optional[str] = ""
+    usp: Optional[str] = ""
     model: ModelChoice = "gemini"
 
 class CreatorAudit(BaseModel):
@@ -105,6 +130,15 @@ class CreatorAudit(BaseModel):
     recent_captions: List[str]
     content_notes: str
     collab_goal: str
+    target_audience_input: str
+    primary_keywords: str
+    link_in_bio: str
+    top_posts: str
+    worst_content: str
+    content_pillars_current: str
+    competitors_named: str
+    usp: str
+    filming_style: str
     model: str
     audit: Optional[Dict[str, Any]] = None
     created_at: str
@@ -118,6 +152,22 @@ class Lead(BaseModel):
     city: str
     state: str
     instagram_url: str
+    current_followers: str
+    target_followers: str
+    avg_reel_views: str
+    avg_reel_likes: str
+    avg_reel_comments: str
+    posting_activity: str
+    instagram_context: str
+    current_bio_text: str
+    target_audience_input: str
+    primary_keywords: str
+    link_in_bio: str
+    top_posts: str
+    worst_content: str
+    content_pillars_current: str
+    competitors_named: str
+    filming_style: str
     website_url: str
     google_maps_url: str
     business_phone: str
@@ -203,6 +253,11 @@ REPORT_SYSTEM = """You are RoopCraft OS — a premier B2B growth strategist for 
 You produce comprehensive, actionable business intelligence reports for agency owners preparing to pitch clients.
 Always return valid JSON only, no prose outside the JSON. Be specific, insightful and strategic. Avoid generic filler.
 
+When real Instagram metrics are provided (followers, average views/likes/comments, posting activity), treat
+them as ground truth and base the instagram_audit section on them directly — do not invent different numbers.
+Sanity-check the numbers given: if average likes/comments/views look impossibly high relative to follower count,
+or figures look internally inconsistent, note this in the audit rather than silently accepting them.
+
 For any reel/content ideas you generate, act as an elite Instagram Growth Strategist and Algorithm Expert,
 following this framework:
 1. UNDERSTAND THE NICHE: Before generating any idea, ground it in this specific business's target audience,
@@ -271,6 +326,22 @@ Recent post captions:
 Agency's notes on their content quality: {a.content_notes or "N/A"}
 Reason for reaching out / collab goal: {a.collab_goal or "General brand partnership"}
 
+STRATEGY-BUILDING INPUT (treat all of this as ground truth, real facts, not assumptions):
+Target audience (in their own words — demographics, interests, pain points): {a.target_audience_input or "N/A"}
+Primary keywords they want to be found for: {a.primary_keywords or "N/A"}
+Where their bio link currently points: {a.link_in_bio or "N/A"}
+Their top-performing posts and why (in their own words): {a.top_posts or "N/A"}
+Content that historically flops for them: {a.worst_content or "N/A"}
+Their current content pillars (as they see them): {a.content_pillars_current or "N/A"}
+Named real competitors/accounts they admire in their niche: {a.competitors_named or "N/A"}
+Their USP vs. those competitors: {a.usp or "N/A"}
+Preferred filming style: {a.filming_style or "N/A"}
+
+If named real competitors are given, reference those specific accounts directly rather than generic ones.
+If a filming style preference is given, tailor every reel_ideas shot-by-shot script to match it (e.g. do not
+suggest talking-to-camera scripts if they said faceless/aesthetic only). Use their top-performing posts as a
+pattern to build on, and actively avoid patterns similar to what they said flops for them.
+
 Return a JSON object with exactly this shape:
 {{
   "data_plausibility": {{
@@ -327,12 +398,40 @@ BUSINESS INPUT
 Name: {a.business_name}
 Category: {a.category}
 Location: {a.city}, {a.state}
-Instagram: {a.instagram_url or "N/A"}
+Instagram profile link (for reference only): {a.instagram_url or "N/A"}
 Website: {a.website_url or "N/A"}
 Google Maps: {a.google_maps_url or "N/A"}
 USP: {a.usp or "N/A"}
 Goal: {a.goal or "Grow brand recognition"}
 Owner Notes: {a.notes or "N/A"}
+
+REAL INSTAGRAM DATA (manually collected by the agency from the account — treat this as ground truth,
+do not contradict it or invent different numbers; if a field says N/A, acknowledge it's unknown rather
+than guessing a specific number):
+Current followers: {a.current_followers or "N/A"}
+Target follower goal: {a.target_followers or "N/A"}
+Average views per Reel: {a.avg_reel_views or "N/A"}
+Average likes per Reel: {a.avg_reel_likes or "N/A"}
+Average comments per Reel: {a.avg_reel_comments or "N/A"}
+Posting activity/frequency: {a.posting_activity or "N/A"}
+Additional context from the agency about this account: {a.instagram_context or "N/A"}
+
+STRATEGY-BUILDING INPUT (treat all of this as ground truth, real facts about the account, not assumptions):
+Current bio text: {a.current_bio_text or "N/A"}
+Target audience (in the owner's own words — demographics, interests, pain points): {a.target_audience_input or "N/A"}
+Primary keywords they want to be found for: {a.primary_keywords or "N/A"}
+Where their bio link currently points: {a.link_in_bio or "N/A"}
+Their top-performing posts and why (in their own words): {a.top_posts or "N/A"}
+Content that historically flops for them: {a.worst_content or "N/A"}
+Their current content pillars (as they see them): {a.content_pillars_current or "N/A"}
+Named real competitors: {a.competitors_named or "N/A"}
+Preferred filming style: {a.filming_style or "N/A"}
+
+If named real competitors are given, base competitor_analysis on those specific accounts/names rather than
+inventing generic competitor names. If a filming style preference is given, tailor every reel_ideas shot-by-shot
+script to match it (e.g. do not suggest talking-to-camera scripts if they said faceless/aesthetic only).
+Use their top-performing posts as a pattern to build on, and actively avoid patterns similar to what they said
+flops for them.
 
 Return a JSON object with exactly this shape:
 {{
@@ -350,12 +449,18 @@ Return a JSON object with exactly this shape:
     "peak_hours": "string, best guess"
   }},
   "instagram_audit": {{
+    "current_metrics": {{
+      "followers": "the current_followers value given, or 'Not provided' if N/A",
+      "estimated_engagement_rate": "computed from avg views/likes/comments vs followers if the numbers are parseable, otherwise 'insufficient data' — never invent numbers not given",
+      "activity_assessment": "1-2 sentences on whether the given posting activity is healthy for this follower count and category"
+    }},
+    "growth_gap_analysis": "if a target_followers goal was given, 2-3 sentences on the realistic gap between current and target, and what growth rate that requires — otherwise state that no specific target was given",
     "bio_assessment": "1-2 sentence critique",
     "highlights": "1-2 sentence critique",
     "profile_picture": "1 sentence",
-    "posting_frequency": "assessment",
-    "reels": "assessment",
-    "engagement": "assessment",
+    "posting_frequency": "assessment grounded in the posting_activity data given",
+    "reels": "assessment grounded in avg views/likes/comments given, not a generic guess",
+    "engagement": "assessment grounded in the real numbers given",
     "visual_consistency": "assessment",
     "strengths": ["3-5 items"],
     "weaknesses": ["3-5 items"],
@@ -577,6 +682,22 @@ async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
         "city": body.city,
         "state": body.state,
         "instagram_url": body.instagram_url or "",
+        "current_followers": body.current_followers or "",
+        "target_followers": body.target_followers or "",
+        "avg_reel_views": body.avg_reel_views or "",
+        "avg_reel_likes": body.avg_reel_likes or "",
+        "avg_reel_comments": body.avg_reel_comments or "",
+        "posting_activity": body.posting_activity or "",
+        "instagram_context": body.instagram_context or "",
+        "current_bio_text": body.current_bio_text or "",
+        "target_audience_input": body.target_audience_input or "",
+        "primary_keywords": body.primary_keywords or "",
+        "link_in_bio": body.link_in_bio or "",
+        "top_posts": body.top_posts or "",
+        "worst_content": body.worst_content or "",
+        "content_pillars_current": body.content_pillars_current or "",
+        "competitors_named": body.competitors_named or "",
+        "filming_style": body.filming_style or "",
         "website_url": body.website_url or "",
         "google_maps_url": body.google_maps_url or "",
         "business_phone": business_phone or "",
@@ -719,6 +840,15 @@ async def create_creator_audit(body: CreatorAuditCreate, current=Depends(get_cur
         "recent_captions": body.recent_captions or [],
         "content_notes": body.content_notes or "",
         "collab_goal": body.collab_goal or "",
+        "target_audience_input": body.target_audience_input or "",
+        "primary_keywords": body.primary_keywords or "",
+        "link_in_bio": body.link_in_bio or "",
+        "top_posts": body.top_posts or "",
+        "worst_content": body.worst_content or "",
+        "content_pillars_current": body.content_pillars_current or "",
+        "competitors_named": body.competitors_named or "",
+        "usp": body.usp or "",
+        "filming_style": body.filming_style or "",
         "model": body.model,
         "audit": audit,
         "created_at": now,
