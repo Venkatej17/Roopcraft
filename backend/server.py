@@ -557,7 +557,12 @@ async def create_lead(body: AuditCreate, current=Depends(get_current_user)):
         chat = new_chat(f"report-{lead_id}", REPORT_SYSTEM, body.model)
         response_text = await chat.send_message(UserMessage(text=report_prompt(body)))
         report = extract_json(response_text)
-        logger.info("DEBUG reel_ideas[0] keys: %s", list(report.get("reel_ideas", [{}])[0].keys()) if report.get("reel_ideas") else "NO REEL IDEAS")
+        _ri = report.get("reel_ideas", [])
+        if _ri:
+            logger.info("DEBUG reel_idea[0] FULL: %s", json.dumps(_ri[0], ensure_ascii=False))
+            logger.info("DEBUG total reel_ideas count: %d", len(_ri))
+        else:
+            logger.info("DEBUG NO REEL IDEAS")
     except Exception as e:
         logger.exception("Report generation failed")
         raise HTTPException(status_code=500, detail=f"AI report generation failed: {str(e)}")
