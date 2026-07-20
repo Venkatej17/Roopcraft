@@ -207,10 +207,18 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(securit
     try:
         payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         user_id = payload.get("sub")
-    except pyjwt.PyJWTError:
+    except pyjwt.ExpiredSignatureError:
+        logger.warning("DEBUG auth: token EXPIRED")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except pyjwt.InvalidSignatureError:
+        logger.warning("DEBUG auth: token INVALID SIGNATURE (JWT_SECRET mismatch between issue-time and now)")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except pyjwt.PyJWTError as e:
+        logger.warning("DEBUG auth: token decode failed: %s (%s)", str(e), type(e).__name__)
         raise HTTPException(status_code=401, detail="Invalid token")
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
     if not user:
+        logger.warning("DEBUG auth: user_id from token not found in DB: %s", user_id)
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
